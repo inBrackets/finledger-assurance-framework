@@ -17,7 +17,7 @@ jobs:
 
     # 2. Instalacja Foundry (Forge, Anvil, Cast)
     - name: Install Foundry
-      uses: foundry-rs/foundry-toolset@v1
+      uses: foundry-rs/setup-foundry@v1
       with:
         version: nightly # lub konkretna wersja, np. v1.0.0
 
