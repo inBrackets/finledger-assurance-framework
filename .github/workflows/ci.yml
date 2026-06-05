@@ -23,18 +23,17 @@ jobs:
     - name: Start Anvil (Local Blockchain Sandbox)
       run: |
         anvil --host 127.0.0.1 --port 8545 &
-        echo "Czekam na uruchomienie Anvila..."
-        sleep 3 # Dajemy Anvilowi 3 sekundy na pełne wystartowanie
-      # '&' na końcu pierwszej linii powoduje, że proces działa w tle i nie blokuje kolejnych kroków
+        # '&' uruchamia Anvila w tle; czekamy aż faktycznie zacznie odpowiadać zamiast ślepo spać
+        until curl -s -o /dev/null http://127.0.0.1:8545; do sleep 0.2; done
+        echo "Anvil gotowy!"
 
-    # 4. Uruchomienie testów Solidity (Forge)
+    # 4. Uruchomienie testów Solidity (Forge) — forge test kompiluje kontrakt i tworzy artefakty w contracts/out/
     - name: Run Forge Tests
       run: |
         cd contracts
         forge test -v
-        forge build
 
-# 5. Instalacja i konfiguracja Pythona
+    # 5. Instalacja i konfiguracja Pythona
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
