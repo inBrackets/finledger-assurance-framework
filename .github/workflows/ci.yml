@@ -17,9 +17,7 @@ jobs:
 
     # 2. Instalacja Foundry (Forge, Anvil, Cast)
     - name: Install Foundry
-      uses: foundry-rs/setup-foundry@v1
-      with:
-        version: nightly # lub konkretna wersja, np. v1.0.0
+      uses: paradigmxyz/setup-foundry@v1
 
     # 3. Uruchomienie Anvila w tle
     - name: Start Anvil (Local Blockchain Sandbox)
