@@ -4,6 +4,7 @@ import hashlib
 import pytest
 from dotenv import load_dotenv
 from web3 import Web3
+from web3.exceptions import TimeExhausted
 
 # Ścieżka do skompilowanego artefaktu kontraktu (plik JSON generowany przez Foundry).
 # os.path.dirname(__file__) daje nam katalog tego pliku testowego,
@@ -171,3 +172,94 @@ def test_zk_aml_compliance_unhappy_path_invalid_proof(web3_setup, contract_insta
     # Oczekujemy statusu 0 (Transaction Reverted), ponieważ kontrakt powinien rzucić InvalidZKProof()
     assert tx_receipt['status'] == 0, "BŁĄD QA: Kontrakt zaakceptował sfałszowany dowód ZK!"
     print("[ZK QA LOG] Sukces testu negatywnego: Sfałszowany dowód został prawidłowo zablokowany przez blockchain.")
+
+def test_unhappy_path_gas_spike_and_revert(web3_setup, contract_instance):
+    """
+    Scenariusz 4 (Negatywny): Obsługa skoków gazu i niedoszacowanych transakcji.
+    Weryfikuje, czy framework prawidłowo wychwytuje i obsługuje awarie sieciowe,
+    gdy warunki na blockchainie ulegają nagłemu pogorszeniu.
+    """
+    w3, account, private_key = web3_setup
+    mock_timestamp = 1717598000
+    mock_zk_proof = b"MATHEMATICAL_ZK_PROOF_VALID_32B_"
+    aml_compliant = True
+
+    # Pobieramy aktualną liczbę transakcji (nonce) dla portfela
+    nonce = w3.eth.get_transaction_count(account.address)
+
+    # =========================================================================
+    # 1. SYMULACJA SKOKU GAZU (Niedoszacowana cena gazu - Gas Price Too Low)
+    # =========================================================================
+    # Celowo ustawiamy gasPrice na drastycznie niską wartość (1 wei), 
+    # która na pewno jest poniżej minimalnej ceny (base fee) sieci Anvil.
+    low_gas_price = 1 
+    
+    tx_underpriced = contract_instance.functions.verifyZKPandPublish(
+        mock_timestamp,
+        mock_zk_proof,
+        aml_compliant
+    ).build_transaction({
+        'chainId': 31337,
+        'gas': 300000,
+        'gasPrice': low_gas_price,
+        'nonce': nonce,
+    })
+
+    # Podpisujemy wadliwą transakcję
+    signed_tx = w3.eth.account.sign_transaction(tx_underpriced, private_key=private_key)
+
+    print("\n[QA LOG] Wstrzykiwanie niedoszacowanej transakcji (symulacja nagłego skoku cen gazu)...")
+    
+    # Oczekujemy, że węzeł blockchain lub biblioteka web3 natychmiast odrzuci tę transakcję
+    with pytest.raises(Exception) as exc_info:
+        w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+    
+    # Sprawdzamy, czy infrastruktura poprawnie przechwyciła błąd EVM o zbyt niskiej opłacie
+    assert "max fee per gas less than block base fee" in str(exc_info.value).lower() or "underpriced" in str(exc_info.value).lower()
+    print(f"[QA LOG] Sukces: Infrastruktura bezpiecznie odrzuciła transakcję. Powód: {exc_info.value}")
+
+
+    # =========================================================================
+    # 2. SYMULACJA WYCZERPANIA LIMITU GAZU (Out of Gas / Intrinsic Gas Too Low)
+    # =========================================================================
+    # Pobieramy aktualną, poprawną rynkową cenę gazu, aby ominąć poprzedni błąd
+    market_gas_price = w3.eth.gas_price
+    
+    # Celowo ustawiamy limit gazu na śmiesznie niski poziom (21000). 
+    # Tyle wystarczy na zwykły przelew ETH, ale to za mało na wykonanie logiki smart kontraktu.
+    insufficient_gas_limit = 21000 
+
+    tx_out_of_gas = contract_instance.functions.verifyZKPandPublish(
+        mock_timestamp,
+        mock_zk_proof,
+        aml_compliant
+    ).build_transaction({
+        'chainId': 31337,
+        'gas': insufficient_gas_limit,
+        'gasPrice': market_gas_price,
+        'nonce': nonce, # Ponownie używamy tego samego nonce, bo poprzednia transakcja nigdy nie trafiła do bloku
+    })
+
+    signed_out_of_gas_tx = w3.eth.account.sign_transaction(tx_out_of_gas, private_key=private_key)
+
+    print("[QA LOG] Wstrzykiwanie transakcji ze zbyt niskim limitem gazu (wymuszenie błędu Out-of-Gas)...")
+
+    # W zależności od konfiguracji węzła, transakcja może zostać odrzucona przy wysyłce 
+    # LUB wejść do bloku i zakończyć się statusem porażki (0). Test obsługuje oba przypadki.
+    try:
+            tx_hash = w3.eth.send_raw_transaction(signed_out_of_gas_tx.raw_transaction)
+            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=5)
+            
+            # Jeśli transakcja została wykopana w bloku, jej status musi wynosić 0 (Revert)
+            assert receipt['status'] == 0, "Transakcja powinna zakończyć się błędem z powodu braku gazu!"
+            print("[QA LOG] Sukces: Transakcja została odrzucona na poziomie EVM (Status: 0).")
+            
+    except TimeExhausted as te:
+        # Anvil przyjął transakcję do mempoola, ale z braku gazu nigdy jej nie wykopał (wygasła po 5s)
+        print(f"[QA LOG] Sukces: Transakcja prawidłowo utknęła i wygasła w mempoolu z powodu zbyt niskiego limitu gazu.")
+        assert "not in the chain" in str(te).lower() or "timeout" in str(te).lower()
+
+    except Exception as e:
+        # Jeśli węzeł zablokował ją natychmiast jeszcze przed dodaniem do kolejki mempool
+        assert "intrinsic gas too low" in str(e).lower() or "gas limit" in str(e).lower() or "out of gas" in str(e).lower()
+        print(f"[QA LOG] Sukces: Silnik sieci zablokował transakcję przed rozgłoszeniem. Powód: {e}")
