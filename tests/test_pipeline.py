@@ -263,3 +263,101 @@ def test_unhappy_path_gas_spike_and_revert(web3_setup, contract_instance):
         # Jeśli węzeł zablokował ją natychmiast jeszcze przed dodaniem do kolejki mempool
         assert "intrinsic gas too low" in str(e).lower() or "gas limit" in str(e).lower() or "out of gas" in str(e).lower()
         print(f"[QA LOG] Sukces: Silnik sieci zablokował transakcję przed rozgłoszeniem. Powód: {e}")
+
+
+def test_mempool_gas_priority_ordering(web3_setup):
+    """
+    Test dowodzący, że walidatorzy (węzeł Anvil) traktują priorytetowo 
+    transakcje z wyższym Gas Price podczas wybierania ich z mempoolu do bloku.
+    """
+    w3, account_1, private_key_1 = web3_setup
+    
+    # Do tego testu potrzebujemy drugiego konta, aby wysłać transakcje niezależnie
+    # Anvil domyślnie udostępnia 10 kont. Pobieramy drugie konto (indeks 1).
+    account_2_address = w3.eth.accounts[1]
+    # W prawdziwym setupie pobrałbyś też klucz prywatny konta 2, 
+    # ale na potrzeby testu wyślemy transakcję 2 bezpośrednio przez węzeł lub podpiszemy.
+    
+    # 1. ZATRZYMUJEMY AUTOMATYCZNE KOPANIE BLOKÓW (Wyłączamy Auto-mine w Anvilu)
+    # Od teraz transakcje będą trafiać do mempoolu i tam "wisieć".
+    w3.provider.make_request("evm_setAutomine", [False])
+    
+    try:
+        # Pobieramy aktualne parametry sieci
+        base_fee = w3.eth.get_block('latest')['baseFeePerGas']
+        nonce_1 = w3.eth.get_transaction_count(account_1.address)
+        nonce_2 = w3.eth.get_transaction_count(account_2_address)
+        
+        # Przygotowujemy zwykły przelew testowy (najprostsza transakcja)
+        tx_template = {
+            'type': '0x2',  # Transakcja EIP-1559 (nowy standard Ethereum)
+            'chainId': 31337,
+            'gas': 21000,
+            'value': w3.to_wei(0.1, 'ether'),
+        }
+
+        # T1: Transakcja z NISKIM priorytetem (Low Fee)
+        tx_low_fee = {
+            **tx_template,
+            'nonce': nonce_1,
+            'to': w3.eth.accounts[3],
+            'maxFeePerGas': base_fee + w3.to_wei(1, 'gwei'),        # Łączna stawka
+            'maxPriorityFeePerGas': w3.to_wei(1, 'gwei')            # Napiwek dla górnika
+        }
+        
+        # T2: Transakcja z WYSOKIM priorytetem (High Fee - 50x większy napiwek!)
+        tx_high_fee = {
+            **tx_template,
+            'nonce': nonce_2,
+            'to': w3.eth.accounts[4],
+            'maxFeePerGas': base_fee + w3.to_wei(50, 'gwei'),
+            'maxPriorityFeePerGas': w3.to_wei(50, 'gwei')
+        }
+
+        # Podpisujemy obie transakcje
+        # (Dla uproszczenia zakładamy, że podpisujemy kluczem konta pierwszego, 
+        # w realnym teście upewnij się, że masz klucze do obu kont lub użyj w3.eth.send_transaction)
+        signed_low = w3.eth.account.sign_transaction(tx_low_fee, private_key=private_key_1)
+        
+        # Aby wysłać z konta 2 bez posiadania jawnego klucza w zmiennej, 
+        # możemy poprosić węzeł Anvil o jej podpisanie i wysłanie (Anvil ma odblokowane konta):
+        w3.provider.make_request("anvil_impersonateAccount", [account_2_address])
+        
+        # 2. WSTRZYKUJEMY OBIE TRANSAKCJE DO MEMPOOLU
+        print("\n[QA LOG] Wysyłanie transakcji z niską opłatą do mempoolu...")
+        tx_hash_low = w3.eth.send_raw_transaction(signed_low.raw_transaction)
+        
+        print("[QA LOG] Wysyłanie transakcji z wysoką opłatą do mempoolu...")
+        tx_hash_high = w3.eth.send_transaction({
+            'from': account_2_address,
+            'to': w3.eth.accounts[4],
+            'value': w3.to_wei(0.1, 'ether'),
+            'gas': 21000,
+            'maxFeePerGas': base_fee + w3.to_wei(50, 'gwei'),
+            'maxPriorityFeePerGas': w3.to_wei(50, 'gwei'),
+            'nonce': nonce_2
+        })
+
+        # W tym momencie OBIE transakcje wiszą w mempoolu. Żadna nie jest wykopana.
+        
+        # 3. WYMUSZAMY RĘCZNE WYKOPANIE TYLKO JEDNEGO BLOKU
+        print("[QA LOG] Nakazywanie Anvilowi wykopania dokładnie 1 nowego bloku...")
+        w3.provider.make_request("evm_mine", [])
+
+        # 4. WERYFIKACJA (ASERCJA)
+        # Pobieramy najnowszy wykopany blok i sprawdzamy, które transakcje do niego weszły
+        latest_block = w3.eth.get_block('latest', full_transactions=True)
+        block_tx_hashes = [tx['hash'] for tx in latest_block['transactions']]
+
+        print(f"[QA LOG] Transakcje, które znalazły się w bloku: { [h.hex() for h in block_tx_hashes] }")
+        
+        # Dowód: Transakcja High Fee MUSI być w bloku
+        tx_high_fee_in_block = (tx_hash_high in block_tx_hashes)
+        assert tx_high_fee_in_block, "BŁĄD: Transakcja z wysoką opłatą powinna zostać wykopana w pierwszej kolejności!"
+        print("[QA LOG] SUKCES: Transakcja z wyższym Gas Fee opuściła mempool jako pierwsza!")
+
+    finally:
+        # KLUCZOWE: Zawsze przywracamy auto-mine na koniec testu, 
+        # aby nie popsuć działania innych testów w całym pipeline!
+        w3.provider.make_request("evm_setAutomine", [True])
+        w3.provider.make_request("anvil_stopImpersonatingAccount", [account_2_address])
