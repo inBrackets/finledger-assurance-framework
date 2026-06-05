@@ -15,13 +15,14 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-# 2. Ręczna, niezawodna instalacja Foundry (Forge, Anvil) przez oficjalny skrypt
+# 2. Ręczna instalacja Foundry z jawnym wskazaniem ścieżki w CI
     - name: Install Foundry (Manual Setup)
       run: |
         curl -L https://foundry.paradigm.xyz | bash
+        # Wywołujemy foundryup bezpośrednio z pełnej ścieżki, aby zainstalować forge i anvil
+        $HOME/.foundry/bin/foundryup
+        # Dodajemy binaria do PATH dla kolejnych kroków GitHub Actions
         echo "$HOME/.foundry/bin" >> $GITHUB_PATH
-        export PATH="$HOME/.foundry/bin:$PATH"
-        foundryup
 
     # 3. Uruchomienie Anvila w tle
     - name: Start Anvil (Local Blockchain Sandbox)
