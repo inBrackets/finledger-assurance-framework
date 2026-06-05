@@ -15,18 +15,21 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-# 2. Bezpośrednie pobranie oficjalnego wydania Foundry (Linux x86_64)
-    - name: Download and Install Foundry Binaries
+# 2. Instalacja Foundry za pomocą oficjalnego instalatora z przeładowaniem środowiska w locie
+    - name: Install Foundry via Official Script
       run: |
-        # Pobieramy najnowsze stabilne wydanie bezpośrednio z GitHub Releases organizacji foundry-rs
-        wget https://github.com/foundry-rs/foundry/releases/latest/download/foundry_linux_amd64.tar.gz
-        tar -xzf foundry_linux_amd64.tar.gz
-        # Przenosimy najważniejsze narzędzia (forge i anvil) do domyślnej ścieżki systemowej Linuxa
-        sudo mv forge /usr/local/bin/
-        sudo mv anvil /usr/local/bin/
-        # Czyszczenie pobranego archiwum
-        rm foundry_linux_amd64.tar.gz
-        # Weryfikacja instalacji w logach
+        # 1. Pobranie i uruchomienie instalatora narzędzia foundryup
+        curl -L https://foundry.paradigm.xyz | bash
+        
+        # 2. Dodanie ścieżki binariów do obecnej sesji i zainstalowanie forge/anvil
+        export PATH="$HOME/.foundry/bin:$PATH"
+        $HOME/.foundry/bin/foundryup
+        
+        # 3. Przeniesienie skompilowanych binariów do globalnej ścieżki systemowej GitHub Runnera
+        sudo cp $HOME/.foundry/bin/forge /usr/local/bin/
+        sudo cp $HOME/.foundry/bin/anvil /usr/local/bin/
+        
+        # 4. Weryfikacja poprawności działania w logach CI
         forge --version
         anvil --version
 
