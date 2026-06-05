@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import "../src/AttestationRegistry.sol";
 
-contract AttestationRegistryTest extends Test {
+contract AttestationRegistryTest is Test {
     AttestationRegistry public registry;
     address public admin = address(1);
     address public hacker = address(2);
