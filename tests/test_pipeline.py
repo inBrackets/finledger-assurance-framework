@@ -128,7 +128,7 @@ def test_zk_aml_compliance_happy_path(web3_setup, contract_instance):
     
     # 1. Proces biznesowy (Off-chain)
     # System finansowy generuje tajny dowód (w tym przypadku symulowany 32-bajtowy poprawny proof)
-    mock_zk_proof = b"MATHEMATICAL_ZK_PROOF_VALID_32B" 
+    mock_zk_proof = b"MATHEMATICAL_ZK_PROOF_VALID_32B_" 
     aml_compliant = True  # Publiczne potwierdzenie: kwota < limit
     
     # 2. Transakcja do smart kontraktu
