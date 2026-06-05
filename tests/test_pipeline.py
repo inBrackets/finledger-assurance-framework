@@ -117,3 +117,74 @@ def test_e2e_blockchain_settlement_pipeline(web3_setup, contract_instance):
     saved_root = contract_instance.functions.registry(mock_timestamp).call()
     assert saved_root == state_root, "Zapisany na blockchainie State Root nie zgadza się z wygenerowanym!"
     print("[QA LOG] Weryfikacja stanu zakończona sukcesem. Integralność danych zabezpieczona.")
+
+def test_zk_aml_compliance_happy_path(web3_setup, contract_instance):
+    """
+    Scenariusz 2 (Biznesowy): Weryfikacja limitów AML przy użyciu Zero-Knowledge Proof.
+    Udowadniamy, że kwota transakcji jest legalna, nie ujawniając jej wartości sieci.
+    """
+    w3, account = web3_setup
+    mock_timestamp = 1717597000
+    
+    # 1. Proces biznesowy (Off-chain)
+    # System finansowy generuje tajny dowód (w tym przypadku symulowany 32-bajtowy poprawny proof)
+    mock_zk_proof = b"MATHEMATICAL_ZK_PROOF_VALID_32B" 
+    aml_compliant = True  # Publiczne potwierdzenie: kwota < limit
+    
+    # 2. Transakcja do smart kontraktu
+    nonce = w3.eth.get_transaction_count(account.address)
+    tx = contract_instance.functions.verifyZKPandPublish(
+        mock_timestamp,
+        mock_zk_proof,
+        aml_compliant
+    ).build_transaction({
+        'chainId': 31337,
+        'gas': 300000,
+        'gasPrice': w3.eth.gas_price,
+        'nonce': nonce,
+    })
+    
+    signed_tx = w3.eth.account.sign_transaction(tx, private_key=os.getenv("PRIVATE_KEY"))
+    tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+    tx_receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+    
+    # 3. Asercje QA
+    assert tx_receipt['status'] == 1, "Kontrakt odrzucił poprawny dowód ZK!"
+    
+    # Sprawdzamy czy stan na blockchainie potwierdza pomyślną weryfikację
+    is_verified = contract_instance.functions.zkVerificationRegistry(mock_timestamp).call()
+    assert is_verified is True
+    print(f"\n[ZK QA LOG] Sukces biznesowy: Limit AML zweryfikowany protokołem ZK bez ujawniania kwoty.")
+
+
+def test_zk_aml_compliance_unhappy_path_invalid_proof(web3_setup, contract_instance):
+    """
+    Scenariusz 3 (Biznesowy): Próba oszustwa. Sfałszowany lub niepełny dowód ZK 
+    musi zostać bezwzględnie odrzucony przez smart kontrakt.
+    """
+    w3, account = web3_setup
+    mock_timestamp = 1717598000
+    
+    # Symulacja sfałszowanego/uszkodzonego dowodu (zbyt krótka sekwencja bajtów)
+    corrupted_zk_proof = b"bad_proof" 
+    aml_compliant = True
+    
+    nonce = w3.eth.get_transaction_count(account.address)
+    tx = contract_instance.functions.verifyZKPandPublish(
+        mock_timestamp,
+        corrupted_zk_proof,
+        aml_compliant
+    ).build_transaction({
+        'chainId': 31337,
+        'gas': 300000,
+        'gasPrice': w3.eth.gas_price,
+        'nonce': nonce,
+    })
+    
+    signed_tx = w3.eth.account.sign_transaction(tx, private_key=os.getenv("PRIVATE_KEY"))
+    tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+    tx_receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+    
+    # Oczekujemy statusu 0 (Transaction Reverted), ponieważ kontrakt powinien rzucić InvalidZKProof()
+    assert tx_receipt['status'] == 0, "BŁĄD QA: Kontrakt zaakceptował sfałszowany dowód ZK!"
+    print("[ZK QA LOG] Sukces testu negatywnego: Sfałszowany dowód został prawidłowo zablokowany przez blockchain.")
