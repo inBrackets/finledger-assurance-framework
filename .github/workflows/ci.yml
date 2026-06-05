@@ -15,14 +15,20 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-# 2. Ręczna instalacja Foundry z jawnym wskazaniem ścieżki w CI
-    - name: Install Foundry (Manual Setup)
+# 2. Bezpośrednie pobranie oficjalnego wydania Foundry (Linux x86_64)
+    - name: Download and Install Foundry Binaries
       run: |
-        curl -L https://foundry.paradigm.xyz | bash
-        # Wywołujemy foundryup bezpośrednio z pełnej ścieżki, aby zainstalować forge i anvil
-        $HOME/.foundry/bin/foundryup
-        # Dodajemy binaria do PATH dla kolejnych kroków GitHub Actions
-        echo "$HOME/.foundry/bin" >> $GITHUB_PATH
+        # Pobieramy najnowsze stabilne wydanie bezpośrednio z GitHub Releases organizacji foundry-rs
+        wget https://github.com/foundry-rs/foundry/releases/latest/download/foundry_linux_amd64.tar.gz
+        tar -xzf foundry_linux_amd64.tar.gz
+        # Przenosimy najważniejsze narzędzia (forge i anvil) do domyślnej ścieżki systemowej Linuxa
+        sudo mv forge /usr/local/bin/
+        sudo mv anvil /usr/local/bin/
+        # Czyszczenie pobranego archiwum
+        rm foundry_linux_amd64.tar.gz
+        # Weryfikacja instalacji w logach
+        forge --version
+        anvil --version
 
     # 3. Uruchomienie Anvila w tle
     - name: Start Anvil (Local Blockchain Sandbox)
