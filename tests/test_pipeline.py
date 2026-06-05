@@ -123,7 +123,7 @@ def test_zk_aml_compliance_happy_path(web3_setup, contract_instance):
     Scenariusz 2 (Biznesowy): Weryfikacja limitów AML przy użyciu Zero-Knowledge Proof.
     Udowadniamy, że kwota transakcji jest legalna, nie ujawniając jej wartości sieci.
     """
-    w3, account = web3_setup
+    w3, account, _ = web3_setup
     mock_timestamp = 1717597000
     
     # 1. Proces biznesowy (Off-chain)
@@ -162,7 +162,7 @@ def test_zk_aml_compliance_unhappy_path_invalid_proof(web3_setup, contract_insta
     Scenariusz 3 (Biznesowy): Próba oszustwa. Sfałszowany lub niepełny dowód ZK 
     musi zostać bezwzględnie odrzucony przez smart kontrakt.
     """
-    w3, account = web3_setup
+    w3, account, _ = web3_setup
     mock_timestamp = 1717598000
     
     # Symulacja sfałszowanego/uszkodzonego dowodu (zbyt krótka sekwencja bajtów)
