@@ -15,25 +15,9 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-# 2. Pobranie konkretnej, stabilnej wersji binarnej bezpośrednio z GitHub Releases
-    - name: Download and Install Foundry Binaries (v1.7.1)
-      run: |
-        # Pobieramy dokładnie ten plik, który jest dystrybuowany przez organizację foundry-rs
-        wget https://github.com/foundry-rs/foundry/releases/download/v1.7.1/foundry_linux_amd64.tar.gz
-        
-        # Rozpakowujemy archiwum
-        tar -xzf foundry_linux_amd64.tar.gz
-        
-        # Przenosimy gotowe pliki forge i anvil do globalnych binariów systemowych
-        sudo mv forge /usr/local/bin/
-        sudo mv anvil /usr/local/bin/
-        
-        # Czyścimy pozostałości
-        rm foundry_linux_amd64.tar.gz
-        
-        # Weryfikacja instalacji
-        forge --version
-        anvil --version
+    # 2. Instalacja Foundry (forge + anvil) przez oficjalną akcję foundry-rs
+    - name: Install Foundry
+      uses: foundry-rs/foundry-toolchain@v1
 
     # 3. Uruchomienie Anvila w tle
     - name: Start Anvil (Local Blockchain Sandbox)
