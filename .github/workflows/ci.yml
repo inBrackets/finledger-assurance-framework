@@ -15,9 +15,13 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # 2. Instalacja Foundry (Forge, Anvil, Cast)
-    - name: Install Foundry
-      uses: paradigmxyz/setup-foundry@v1
+# 2. Ręczna, niezawodna instalacja Foundry (Forge, Anvil) przez oficjalny skrypt
+    - name: Install Foundry (Manual Setup)
+      run: |
+        curl -L https://foundry.paradigm.xyz | bash
+        echo "$HOME/.foundry/bin" >> $GITHUB_PATH
+        export PATH="$HOME/.foundry/bin:$PATH"
+        foundryup
 
     # 3. Uruchomienie Anvila w tle
     - name: Start Anvil (Local Blockchain Sandbox)
