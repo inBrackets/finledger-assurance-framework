@@ -21,11 +21,16 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # 2. Instalacja Foundry (forge + anvil) przez oficjalną akcję foundry-rs
+    # 2. Tworzenie katalogu na raporty — musi istnieć zanim forge i pytest spróbują do niego pisać.
+    # Zarówno forge test --junit jak i pytest --junit-xml nie tworzą katalogu automatycznie.
+    - name: Create reports directory
+      run: mkdir -p reports
+
+    # 3. Instalacja Foundry (forge + anvil) przez oficjalną akcję foundry-rs
     - name: Install Foundry
       uses: foundry-rs/foundry-toolchain@v1
 
-    # 3. Uruchomienie Anvila w tle
+    # 4. Uruchomienie Anvila w tle
     - name: Start Anvil (Local Blockchain Sandbox)
       run: |
         anvil --host 127.0.0.1 --port 8545 &
@@ -33,19 +38,33 @@ jobs:
         until curl -s -o /dev/null http://127.0.0.1:8545; do sleep 0.2; done
         echo "Anvil gotowy!"
 
-    # 4. Uruchomienie testów Solidity (Forge) — forge test kompiluje kontrakt i tworzy artefakty w contracts/out/
+    # 5. Uruchomienie testów Solidity (Forge) — forge test kompiluje kontrakt i tworzy artefakty w contracts/out/
+    # --junit zmienia format wyjścia stdout na JUnit XML; przekierowujemy go do pliku raportu.
+    # Flaga -v (verbosity) działa z --junit — zwiększa szczegółowość śladów EVM wewnątrz XML.
+    # Ścieżka ../reports/ bo cd contracts zmienia katalog roboczy na contracts/.
     - name: Run Forge Tests
       run: |
         cd contracts
-        forge test -v
+        forge test -v --junit > ../reports/forge-results.xml
 
-    # 5. Instalacja i konfiguracja Pythona
+    # 6. Publikacja raportu testów Solidity jako Check Run w GitHub UI
+    # if: success() || failure() — tak samo jak dla Pythona: raport musi się opublikować
+    # nawet gdy testy failują, bo to właśnie wtedy informacja jest najbardziej potrzebna.
+    - name: Publish Solidity Test Report
+      uses: dorny/test-reporter@v1
+      if: success() || failure()
+      with:
+        name: Solidity Forge Tests
+        path: reports/forge-results.xml
+        reporter: java-junit
+
+    # 7. Instalacja i konfiguracja Pythona
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
-    # 6. Instalacja zależności Pythona
+    # 8. Instalacja zależności Pythona
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
@@ -53,7 +72,7 @@ jobs:
         # Jeśli nie masz requirements.txt, zainstalujemy potrzebne pakiety ręcznie:
         pip install pytest web3 python-dotenv eth-abi
 
-    # 7. Utworzenie tymczasowego pliku .env dla środowiska CI
+    # 9. Utworzenie tymczasowego pliku .env dla środowiska CI
     # W CI używamy dokładnie tego samego klucza prywatnego, który Anvil generuje jako pierwszy
     - name: Create temporary .env file
       run: |
@@ -61,13 +80,13 @@ jobs:
         echo "PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" >> .env
         echo "CONTRACT_ADDRESS=0x5FbDB2315678afecb367f032d93F642f64180aa3" >> .env
 
-    # 8. Uruchomienie testów E2E w Pythonie
+    # 10. Uruchomienie testów E2E w Pythonie
     # --junit-xml generuje raport w formacie JUnit XML, który dorny/test-reporter potrafi odczytać.
     - name: Run Python E2E Tests
       run: |
         pytest -s -v tests/test_pipeline.py --junit-xml=reports/pytest-results.xml
 
-    # 9. Publikacja raportu testów jako Check Run w GitHub UI (zakładka "Checks" w PR)
+    # 11. Publikacja raportu testów Python jako Check Run w GitHub UI (zakładka "Checks" w PR)
     # if: success() || failure() — krok musi wykonać się ZAWSZE, nawet gdy testy failują,
     # bo to właśnie wtedy raport jest najbardziej potrzebny.
     - name: Publish Python Test Report
