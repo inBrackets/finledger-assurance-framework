@@ -180,7 +180,7 @@ def test_unhappy_path_gas_spike_and_revert(web3_setup, contract_instance):
     gdy warunki na blockchainie ulegają nagłemu pogorszeniu.
     """
     w3, account, private_key = web3_setup
-    mock_timestamp = 1717598000
+    mock_timestamp = 1717599000
     mock_zk_proof = b"MATHEMATICAL_ZK_PROOF_VALID_32B_"
     aml_compliant = True
 
@@ -278,10 +278,16 @@ def test_mempool_gas_priority_ordering(web3_setup):
     # W prawdziwym setupie pobrałbyś też klucz prywatny konta 2, 
     # ale na potrzeby testu wyślemy transakcję 2 bezpośrednio przez węzeł lub podpiszemy.
     
+    # Zapamiętujemy oryginalny limit bloku, aby przywrócić go po teście
+    original_gas_limit = w3.eth.get_block('latest')['gasLimit']
+
     # 1. ZATRZYMUJEMY AUTOMATYCZNE KOPANIE BLOKÓW (Wyłączamy Auto-mine w Anvilu)
     # Od teraz transakcje będą trafiać do mempoolu i tam "wisieć".
     w3.provider.make_request("evm_setAutomine", [False])
-    
+    # Ograniczamy pojemność bloku do 30 000 gazu — wystarczy na jedną transakcję ETH (21 000),
+    # ale za mało na dwie (42 000). Wymusza to selekcję priorytetową z mempoolu.
+    w3.provider.make_request("evm_setBlockGasLimit", [hex(30000)])
+
     try:
         # Pobieramy aktualne parametry sieci
         base_fee = w3.eth.get_block('latest')['baseFeePerGas']
@@ -351,13 +357,16 @@ def test_mempool_gas_priority_ordering(web3_setup):
 
         print(f"[QA LOG] Transakcje, które znalazły się w bloku: { [h.hex() for h in block_tx_hashes] }")
         
-        # Dowód: Transakcja High Fee MUSI być w bloku
-        tx_high_fee_in_block = (tx_hash_high in block_tx_hashes)
-        assert tx_high_fee_in_block, "BŁĄD: Transakcja z wysoką opłatą powinna zostać wykopana w pierwszej kolejności!"
+        # Dowód: Transakcja High Fee MUSI być w bloku, a Low Fee MUSI pozostać w mempoolu.
+        # Weryfikacja obu stron jest konieczna — bez drugiej asercji test przechodzi trywialnie,
+        # gdy Anvil wkopuje wszystkie oczekujące transakcje jednocześnie.
+        assert tx_hash_high in block_tx_hashes, "BŁĄD: Transakcja z wysoką opłatą powinna zostać wykopana w pierwszej kolejności!"
+        assert tx_hash_low not in block_tx_hashes, "BŁĄD: Transakcja z niską opłatą nie powinna trafić do bloku, gdy limit gazu jest wyczerpany!"
         print("[QA LOG] SUKCES: Transakcja z wyższym Gas Fee opuściła mempool jako pierwsza!")
 
     finally:
-        # KLUCZOWE: Zawsze przywracamy auto-mine na koniec testu, 
+        # KLUCZOWE: Zawsze przywracamy auto-mine i limit bloku na koniec testu,
         # aby nie popsuć działania innych testów w całym pipeline!
+        w3.provider.make_request("evm_setBlockGasLimit", [hex(original_gas_limit)])
         w3.provider.make_request("evm_setAutomine", [True])
         w3.provider.make_request("anvil_stopImpersonatingAccount", [account_2_address])
